@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="description" content="">
+	<meta name="author" content="">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+	<title>Point Cloud ERIC FT UGM</title>
+
+	<link rel="stylesheet" type="text/css" href="build/potree/potree.css">
+	<link rel="stylesheet" type="text/css" href="libs/jquery-ui/jquery-ui.min.css">
+	<link rel="stylesheet" type="text/css" href="libs/openlayers3/ol.css">
+	<link rel="stylesheet" type="text/css" href="libs/spectrum/spectrum.css">
+	<link rel="stylesheet" type="text/css" href="libs/jstree/themes/mixed/style.css">
+
+	<style>
+		#potree_toolbar{
+			position: absolute; 
+			z-index: 10000; 
+			left: 100px; 
+			top: 0px;
+			background: black;
+			color: white;
+			padding: 0.3em 0.8em;
+			font-family: "system-ui";
+			border-radius: 0em 0em 0.3em 0.3em;
+			display: flex;
+		}
+
+		.potree_toolbar_label{
+			text-align: center;
+			font-size: smaller;
+			opacity: 0.9;
+		}
+
+		.potree_toolbar_separator{
+			background: white;
+			padding: 0px;
+			margin: 5px 10px;
+			width: 1px;
+		}
+	</style>
+</head>
+
+<body>
+	<script src="libs/jquery/jquery-3.1.1.min.js"></script>
+	<script src="libs/spectrum/spectrum.js"></script>
+	<script src="libs/jquery-ui/jquery-ui.min.js"></script>
+	<script src="libs/three.js/build/three.min.js"></script>
+	<script src="libs/proj4/proj4.js"></script>
+	<script src="libs/openlayers3/ol.js"></script>
+	<script src="libs/i18next/i18next.js"></script>
+	<script src="libs/tween/tween.min.js"></script>
+	<script src="libs/d3/d3.js"></script>
+	<script src="libs/jstree/jstree.js"></script>
+	<script src="libs/other/BinaryHeap.js"></script>
+	<script src="libs/plasio/js/laslaz.js"></script>
+	<script src="build/potree/potree.js"></script>
+	
+	<div class="potree_container" style="position: absolute; width: 100%; height: 100%; left: 0px; top: 0px; ">
+		<div id="potree_render_area" style="background-image: url('/build/potree/resources/images/background.jpg');">
+			<div id="potree_toolbar"></div>
+
+			<span style="position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 10000">
+				<input type="button" value="Default Scheme" onclick="setDefaultScheme()"/>
+				<input type="button" value="Indoor Scheme" onclick="setIndoorScheme()"/>		
+			</span>
+		</div>
+		<div id="potree_sidebar_container"> </div>
+	</div>
+	
+	<script type="module">
+
+		import * as THREE from "/libs/three.js/build/three.module.js";
+
+		window.viewer = new Potree.Viewer(document.getElementById("potree_render_area"));
+
+		viewer.setEDLEnabled(false);
+		viewer.setFOV(60);
+		viewer.setPointBudget(2_000_000);
+		viewer.setMinNodeSize(10);
+		viewer.loadSettingsFromURL();
+		viewer.setBackground("gradient");
+		
+		viewer.loadGUI(() => {
+			viewer.setLanguage('en');
+			$("#menu_tools").next().show();
+			$("#menu_scene").next().show();
+			$("#menu_clipping").next().show();
+			$("#menu_filters").next().show();
+			viewer.toggleSidebar();
+			let section = $(`
+				<h3 id="menu_meta" class="accordion-header ui-widget"><span>Metadata</span></h3>
+				<div class="accordion-content ui-widget pv-menu-list"></div>
+			`);
+			let content = section.last();
+			content.html(`
+			<div class="pv-menu-list">
+				3D Point Cloud Visualization of ERIC Building, Faculty of Engineering, Universitas Gadjah Mada.<br>
+				<br>	
+				The indoor point cloud data was collected using Leica RTC360 TLS, processed with Leica Cyclone Register 360. The classification is done using PointNet algorithm.<br>
+				<br>
+				The facade of outdoor point cloud data was collected using Topcon GLS2000 TLS, processed with Magnet Collage. <br>
+				<br>
+				The UAV LiDAR point cloud data was collected using DJI M350 RTK with DJI Zenmuse L2 LiDAR sensor, processed with DJI Terra.<br>
+				<br>
+				Authors: Calvin Wijaya, Ruli Andaru, Harintaka, Catur Aries Rokhmana
+				<br>
+				Affiliation: Department of Geodetic Engineering, Faculty of Engineering, Universitas Gadjah Mada, Indonesia.
+				<br>
+				For inquiries, please contact: calvin.wijaya@ugm.ac.id <br>
+				<br>
+			</div>
+			`);
+			section.first().click(() => content.slideToggle());
+			section.insertBefore($('#menu_about'));
+		});
+
+		async function load(){
+			let pointclouds = [
+				{
+					url: "pointclouds/data1_indoortls/cloud.js",
+					callback: (pointcloud) => {
+						pointcloud.name = "Indoor TLS";
+
+						pointcloud.isIndoor = true; 
+
+						let material = pointcloud.material;
+						material.size = 1;
+						material.pointSizeType = Potree.PointSizeType.ADAPTIVE;
+						material.shape = Potree.PointShape.SQUARE;
+					},
+				},{
+					url: "pointclouds/data2_outdoortls/cloud.js",
+					callback: (pointcloud) => {
+						pointcloud.name = "Outdoor TLS";
+
+						pointcloud.isIndoor = false;
+
+						let material = pointcloud.material;
+						material.size = 1.5;
+						material.pointSizeType = Potree.PointSizeType.ADAPTIVE;
+						material.shape = Potree.PointShape.CIRCLE;
+					},
+				},{
+					url: "pointclouds/data3_uls/cloud.js",
+					callback: (pointcloud) => {
+						pointcloud.name = "UAV LiDAR";
+
+						pointcloud.isIndoor = false;
+
+						let material = pointcloud.material;
+						material.size = 1;
+						material.pointSizeType = Potree.PointSizeType.ADAPTIVE;
+						material.shape = Potree.PointShape.SQUARE;
+					},
+				}
+			];
+
+			let promises = pointclouds.map(p => Potree.loadPointCloud(p.url));
+
+			for(let i = 0; i < promises.length; i++){
+				let pointcloud = (await promises[i]).pointcloud;
+				pointclouds[i].callback(pointcloud);
+				viewer.scene.addPointCloud(pointcloud);
+				viewer.fitToScreen();
+			}
+		}
+
+		load();
+
+	</script>
+
+	<script type="module">
+
+		import * as THREE from "/libs/three.js/build/three.module.js";
+
+		function applyIndoorClassification(){
+			// completely overwrite with your indoor classes
+			let indoorScheme = {
+				0: { name: "Ceiling", color: [1.0, 0.0, 0.0, 1.0], visible: true },   // red
+				1: { name: "Floor",   color: [0.0, 1.0, 0.0, 1.0], visible: true },   // green
+				2: { name: "Wall",    color: [0.0, 0.0, 1.0, 1.0], visible: true },   // blue
+				3: { name: "Beam",    color: [1.0, 1.0, 0.0, 1.0], visible: true },   // yellow
+				4: { name: "Column",  color: [1.0, 0.0, 1.0, 1.0], visible: true },   // magenta
+				5: { name: "Window",  color: [0.0, 1.0, 1.0, 1.0], visible: true },   // cyan
+				6: { name: "Door",    color: [0.5, 0.25, 0.0, 1.0], visible: true },  // brown
+				7: { name: "Stairs",  color: [1.0, 0.5, 0.0, 1.0], visible: true },   // orange
+				8: { name: "Other",   color: [0.5, 0.5, 0.5, 1.0], visible: true }    // gray
+			};
+
+			// clear old scheme
+			viewer.classifications = {};
+
+			// set new scheme
+			viewer.setClassifications(indoorScheme);
+
+			// update sidebar
+			if(viewer.classificationsPanel){
+				viewer.classificationsPanel.update(indoorScheme);
+			}
+		}
+
+		window.setDefaultScheme = function(){
+			viewer.setClassifications(Potree.ClassificationScheme.DEFAULT);
+
+			viewer.scene.pointclouds.forEach(pc => {
+				pc.material.pointColorType = "RGB";   // use string directly
+			});
+
+			if (viewer.classificationsPanel) {
+				viewer.classificationsPanel.update(viewer.getClassifications());
+			}
+		};
+
+		window.setIndoorScheme = function(){
+			viewer.scene.pointclouds.forEach(pc => {
+				if (pc.isIndoor) {
+					pc.material.pointColorType = "CLASSIFICATION";
+				} else {
+					pc.material.pointColorType = "RGB";
+				}
+			});
+
+			applyIndoorClassification();
+		};
+
+	</script>
+
+	<script type="module">
+
+	import * as THREE from "../libs/three.js/build/three.module.js";
+
+	// HTML
+	const elToolbar = $("#potree_toolbar");
+	elToolbar.html(`
+		<span>
+			<div class="potree_toolbar_label">
+				Attribute
+			</div>
+			<div>
+				<img name="action_elevation" src="${Potree.resourcePath}/icons/profile.svg" class="annotation-action-icon" style="width: 2em; height: auto;"/>
+				<img name="action_rgb" src="${Potree.resourcePath}/icons/rgb.svg" class="annotation-action-icon" style="width: 2em; height: auto;"/>
+			</div>
+		</span>
+
+		<span class="potree_toolbar_separator" />
+
+		<span>
+			<div class="potree_toolbar_label">
+				Gradient
+			</div>
+			<div>
+				<span name="gradient_schemes"></span>
+			</div>
+		</span>
+
+		<span class="potree_toolbar_separator" />
+
+		<span>
+			<div class="potree_toolbar_label">
+				Measure
+			</div>
+			<div>
+				<img name="action_measure_point" src="${Potree.resourcePath}/icons/point.svg" class="annotation-action-icon" style="width: 2em; height: auto;"/>
+				<img name="action_measure_distance" src="${Potree.resourcePath}/icons/distance.svg" class="annotation-action-icon" style="width: 2em; height: auto;"/>
+				<img name="action_measure_circle" src="${Potree.resourcePath}/icons/circle.svg" class="annotation-action-icon" style="width: 2em; height: auto;"/>
+			</div>
+		</span>
+
+		<span class="potree_toolbar_separator" />
+
+		<span>
+			<div class="potree_toolbar_label" style="width: 12em">
+				Material
+			</div>
+			<div>
+				<select id="optMaterial" name="optMaterial"></select>
+			</div>
+		</span>
+
+		<span class="potree_toolbar_separator" />
+
+		<span>
+			<div class="potree_toolbar_label">
+				<span data-i18n="appearance.nb_max_pts">Point Budget</span>: 
+				<span name="lblPointBudget" style="display: inline-block; width: 4em;"></span>
+			</div>
+			<div>
+				<div id="sldPointBudget"></div>
+			</div>
+		</span>
+	`);
+
+	// CONTENT & ACTIONS
+
+	{ // ATTRIBUTE
+		elToolbar.find("img[name=action_elevation]").click( () => {
+			viewer.scene.pointclouds.forEach( pc => pc.material.activeAttributeName = "elevation" );
+		});
+
+		elToolbar.find("img[name=action_rgb]").click( () => {
+			viewer.scene.pointclouds.forEach( pc => pc.material.activeAttributeName = "rgba" );
+		});
+	}
+
+	{ // GRADIENT
+		const schemes = Object.keys(Potree.Gradients).map(name => ({name: name, values: Potree.Gradients[name]}));
+		const elGradientSchemes = elToolbar.find("span[name=gradient_schemes]");
+
+		for(const scheme of schemes){
+			const elButton = $(`
+				<span style=""></span>
+			`);
+
+			const svg = Potree.Utils.createSvgGradient(scheme.values);
+			svg.setAttributeNS(null, "class", `button-icon`);
+			svg.style.height = "2em";
+			svg.style.width = "1.3em";
+
+			elButton.append($(svg));
+
+			elButton.click( () => {
+				for(const pointcloud of viewer.scene.pointclouds){
+					pointcloud.material.activeAttributeName = "elevation";
+					pointcloud.material.gradient = Potree.Gradients[scheme.name];
+				}
+			});
+
+			elGradientSchemes.append(elButton);
+		}
+	}
+
+	{ // MEASURE
+		elToolbar.find("img[name=action_measure_point]").click( () => {
+			const measurement = viewer.measuringTool.startInsertion({
+				showDistances: false,
+				showAngles: false,
+				showCoordinates: true,
+				showArea: false,
+				closed: true,
+				maxMarkers: 1,
+				name: 'Point'
+			});
+		});
+
+		elToolbar.find("img[name=action_measure_distance]").click( () => {
+			const measurement = viewer.measuringTool.startInsertion({
+				showDistances: true,
+				showArea: false,
+				closed: false,
+				name: 'Distance'
+			});
+		});
+
+		elToolbar.find("img[name=action_measure_circle]").click( () => {
+			const measurement = viewer.measuringTool.startInsertion({
+				showDistances: false,
+				showHeight: false,
+				showArea: false,
+				showCircle: true,
+				showEdges: false,
+				closed: false,
+				maxMarkers: 3,
+				name: 'Circle'
+			});
+		});
+	}
+
+	{ // MATERIAL
+		let options = [
+			"rgba", 
+			"elevation",
+			"classification",
+		];
+
+		let attributeSelection = elToolbar.find('#optMaterial');
+		for(let option of options){
+			let elOption = $(`<option>${option}</option>`);
+			attributeSelection.append(elOption);
+		}
+
+		const updateMaterialSelection = (event, ui) => {
+			let selectedValue = attributeSelection.selectmenu().val();
+
+			for(const pointcloud of viewer.scene.pointclouds){
+				// if user selects classification, only apply to indoor point clouds
+				if(selectedValue === "classification"){
+					if(pointcloud.isIndoor){  
+						pointcloud.material.activeAttributeName = "classification";
+					} else {
+						pointcloud.material.activeAttributeName = "rgba"; 
+					}
+				} else {
+					// for other cases, apply to all normally
+					pointcloud.material.activeAttributeName = selectedValue;
+				}
+			}
+		};
+
+		attributeSelection.selectmenu({change: updateMaterialSelection});
+	}
+
+	{ // POINT BUDGET
+		elToolbar.find('#sldPointBudget').slider({
+			value: viewer.getPointBudget(),
+			min: 100_000,
+			max: 1_000_000,
+			step: 100_000,
+			slide: (event, ui) => { viewer.setPointBudget(ui.value); }
+		});
+
+		const onBudgetChange = () => {
+			let budget = (viewer.getPointBudget() / (1000_000)).toFixed(1) + "M";
+			elToolbar.find('span[name=lblPointBudget]').html(budget);
+		};
+
+		onBudgetChange();
+		viewer.addEventListener("point_budget_changed", onBudgetChange);
+	}
+
+	
+	</script>
+
+  </body>
+</html>
